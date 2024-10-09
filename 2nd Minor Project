@@ -1,0 +1,168 @@
+import csv
+import re
+import bcrypt
+import requests
+from getpass import getpass
+
+# Constants
+MAX_ATTEMPTS = 5
+CSV_FILE = 'regino.csv'
+API_URL = 'http://ip-api.com/json/'
+
+# Security and Validation Functions
+def hash_password(password):
+    return bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode('utf-8')
+
+def check_password(hashed_password, user_password):
+    if isinstance(hashed_password, str):
+        hashed_password = hashed_password.encode('utf-8')
+    return bcrypt.checkpw(user_password.encode(), hashed_password)
+
+def validate_email(email):
+    email_regex = r'^[a-zA-Z0-9]+@[a-zA-Z0-9-]+$'
+    return re.match(email_regex, email) is not None
+
+def validate_password(password):
+    password_regex =r'^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&]).{8,}$'
+    return re.match(password_regex, password) is not None
+
+# CSV Functions
+def read_csv():
+    users = []
+    try:
+        with open(CSV_FILE, 'r') as file:
+            reader = csv.DictReader(file)
+            for row in reader:
+                row['password'] = row['password'].encode('utf-8')  # Convert back to bytes
+                users.append(row)
+    except FileNotFoundError:
+        pass
+    return users
+
+def write_csv(users):
+    with open(CSV_FILE, 'w', newline='') as file:
+        fieldnames = ['email', 'password', 'security_question', 'security_answer']
+        writer = csv.DictWriter(file, fieldnames=fieldnames)
+        writer.writeheader()
+        for user in users:
+            writer.writerow(user)
+
+def get_user_by_email(email):
+    users = read_csv()
+    for user in users:
+        if user['email'] == email:
+            if isinstance(user['password'],str):
+                
+            #convert stored string password into bytes
+                user['password'] = user['password'].encode('utf-8')
+            return user
+    return None
+
+# User Register
+def register_user():
+    email = input("Enter your email: ")
+    while not validate_email(email):
+        print("Invalid email format. Try again.")
+        email = input("Enter your email: ")
+
+    password = getpass("Create a password: ")
+    while not validate_password(password):
+        print("Password must be at least 8 characters long, contain an uppercase, lowercase, number, and special character.")
+        password = getpass("Create a password: ")
+
+    hashed_password = hash_password(password)
+    security_question = input("Enter a security question (e.g., Your first pet's name): ")
+    security_answer = getpass("Enter the answer: ")
+
+    users = read_csv()
+    users.append({
+        'email': email,
+        'password': hashed_password,
+        'security_question': security_question,
+        'security_answer': security_answer
+    })
+    write_csv(users)
+    print("Registration successful!")
+
+def login_user():
+    attempts = 0
+    while attempts < MAX_ATTEMPTS:
+        email = input("Enter your email: ")
+        password = getpass("Enter your password: ")
+        user = get_user_by_email(email)
+        
+        if user and check_password(user['password'], password):
+            print("Login successful!")
+            return user
+        else:
+            attempts += 1
+            print(f"Invalid credentials. Attempts left: {MAX_ATTEMPTS - attempts}")
+    
+    print("Too many failed attempts. Try again later.")
+    exit()
+
+def forgot_password():
+    email = input("Enter your registered email: ")
+    user = get_user_by_email(email)
+    
+    if not user:
+        print("No user found with that email.")
+        return
+
+    print(f"Security question: {user['security_question']}")
+    answer = getpass("Answer: ")
+    
+    if answer == user['security_answer']:
+        password = getpass("Enter new password: ")
+        while not validate_password(password):
+            print("Password must be at least 8 characters long, contain an uppercase, lowercase, number, and special character.")
+            password = getpass("Enter new password: ")
+        
+        user['password'] = hash_password(password)
+        users = read_csv()
+        for i in range(len(users)):
+            if users[i]['email'] == email:
+                users[i] = user
+        write_csv(users)
+        print("Password updated successfully!")
+    else:
+        print("Incorrect answer to the security question.")
+
+# Geolocation API
+def get_geolocation(ip="192.168.1.102"):
+    url = API_URL 
+    try:
+        response = requests.get(url)
+        data = response.json()
+
+        if data['status'] == 'fail':
+            print(f"Error: {data['message']}")
+        else:
+            print(f"Country: {data['country']}")
+            print(f"City: {data['city']}")
+            print(f"Region: {data['regionName']}")
+            print(f"Latitude: {data['lat']}")
+            print(f"Longitude: {data['lon']}")
+            print(f"Timezone: {data['timezone']}")
+            print(f"ISP: {data['isp']}")
+    except requests.ConnectionError:
+        print("Error: Unable to connect to the internet. Please check your connection.")
+
+# Main Program
+def main():
+    print("Welcome to IP Geolocation Console App")
+    choice = input("1. Register\n2. Login\n3. Forgot Password\n 4.Exit\nChoose an option: ")
+    
+    if choice == '1':
+         register_user()
+    elif choice == '2':
+        user = login_user()
+        ip = input("Enter an IP address (or press Enter to use your own): ")
+        get_geolocation(ip)
+    elif choice == '3':
+        forgot_password()
+    else:
+        print("Invalid choice. Exiting...")
+
+if __name__ == "__main__":
+    main()
